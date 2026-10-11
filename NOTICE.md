@@ -1,4 +1,4 @@
-Hermes Session Groups
+Session Groups
 
 Copyright 2026 TwoRobotsinaTrenchcoat
 
