@@ -78,8 +78,5 @@ python3 -m pytest test_session_groups.py -v
 
 8 tests: config parsing, same-platform validation, member matching, group resolution, synthetic-source construction (group-named identity, no member privileged).
 
----
 
-## License
 
-MIT
