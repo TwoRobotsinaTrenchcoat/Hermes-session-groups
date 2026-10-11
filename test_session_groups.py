@@ -1,4 +1,4 @@
-"""Tests for Session Groups v0.2.0f — hook-side logic.
+"""Tests for Session Groups — hook-side logic.
 
 Mirrors the coverage of upstream's test_session_group_origins.py on the
 config/hook side:

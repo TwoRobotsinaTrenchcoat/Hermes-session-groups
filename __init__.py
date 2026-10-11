@@ -1,21 +1,20 @@
 """
-Session Groups Plugin v0.2.0f — EXPERIMENTAL
+Session Groups Plugin — EXPERIMENTAL
 
 Cross-platform session routing. Maps different (platform, chat_id) pairs
-to a shared session key so messages from different platforms share one
+to a shared session so messages from different platforms share one
 conversation history.
 
-v0.2.0f ("future"): designed against ZK-Snarky's upstream adapter-side
-PR #135404 (https://github.com/NousResearch/hermes-agent/pulls/135404),
-which has NOT merged yet. This version patches the
-``gateway.session.session_group_source`` seam directly and will only work
-once that PR lands upstream. Do not deploy to a live gateway until the PR
-merges OR the per-adapter pending-slot limitation issue is resolved.
+Designed against ZK-Snarky's upstream adapter-side PR #135404
+(https://github.com/NousResearch/hermes-agent/pulls/135404), which has NOT
+merged yet. This plugin patches the ``gateway.session.session_group_source``
+seam directly and will only work once that PR lands upstream. Do not deploy
+to a live gateway until the PR merges.
 
-For production use today, deploy **v0.1.1** (hook-based via session_key_override,
-works with the current patcher).
+Design: synthetic anchor (group name = session identity, no member
+privileged), same-adapter validation, seam patch gated on the upstream merge.
 
-Config schema, examples, and migration notes: see README.md.
+Config schema, examples, and deployment notes: see README.md.
 """
 
 import logging
@@ -28,7 +27,7 @@ logger = logging.getLogger("session-groups")
 
 
 # ---------------------------------------------------------------------------
-# Config dataclasses — carried over from v0.1.1, unchanged
+# Config dataclasses
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -137,9 +136,9 @@ def _build_synthetic_source(group: SessionGroup, incoming: SessionSource) -> Ses
     """
     Build a synthetic SessionSource whose identity is the group name.
 
-    This is the key design decision in v0.2.0f: instead of anchoring the
-    session on a real member (which makes that member privileged and creates
-    a re-anchor reset footgun), we use the group name as the session identity.
+    This is the key design decision: instead of anchoring the session on a
+    real member (which makes that member privileged and creates a re-anchor
+    reset footgun), the group name is the session identity.
 
     The synthetic source is only ever RETURNED by the hook — it is never
     an incoming message source. Upstream's security gate checks that the
@@ -192,11 +191,9 @@ def register(ctx):
     """
     Register the plugin.
 
-    In v0.2.0f, we patch gateway.session.session_group_source directly.
-    In v0.1.1, we used ctx.register_hook("session_key_override", ...).
-
-    The patch approach is used because session_group_source is a module-level
-    function in gateway/session.py (added by PR #135404), not a registered hook.
+    The gateway.session.session_group_source seam is a module-level function
+    in gateway/session.py (added by PR #135404), not a registered hook, so
+    the plugin patches it directly.
     """
     global _config
     _config = _load_config(ctx)
@@ -223,14 +220,13 @@ def register(ctx):
 
         gateway.session.session_group_source = patched
         logger.info(
-            "session-groups: registered v0.2.0f (enabled=%s, groups=%d, "
+            "session-groups: registered (enabled=%s, groups=%d, "
             "patched session_group_source seam)",
             _config.enabled, len(_config.groups),
         )
     except (ImportError, AttributeError) as e:
         logger.warning(
             "session-groups: cannot patch session_group_source — "
-            "PR #135404 has not merged yet (%s). "
-            "Use v0.1.1 for production.",
+            "PR #135404 has not merged yet (%s).",
             e,
         )

@@ -1,17 +1,13 @@
 name: session-groups
-version: 0.2.0f
+version: 0.1.0
 description: |
   Cross-platform session routing. Maps different (platform, chat_id) pairs
-  to a shared session key so messages from different platforms share one
+  to a shared session so messages from different platforms share one
   conversation history.
 
-  EXPERIMENTAL — v0.2.0f ("future"): designed against ZK-Snarky's upstream
-  adapter-side PR #135404 which has NOT merged yet. This version patches the
+  EXPERIMENTAL — designed against ZK-Snarky's upstream adapter-side PR #135404
+  which has NOT merged yet. This plugin patches the
   `gateway.session.session_group_source` seam directly and will only work
-  once that PR lands. Do not deploy to a live gateway until:
-    (1) PR #135404 merges upstream, or
-    (2) the per-adapter pending-slot limitation issue is resolved.
-
-  For production use today, deploy v0.1.1 (hook-based, works now).
+  once that PR lands. Do not deploy to a live gateway until the PR merges.
 
 enabled: false

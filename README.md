@@ -1,61 +1,48 @@
-# Session Groups Plugin v0.2.0f — EXPERIMENTAL
+# Hermes Session Groups
 
-**Status:** Experimental — awaiting upstream merge
+Cross-platform session routing for [Hermes Agent](https://github.com/NousResearch/hermes-agent). Maps different (platform, chat_id) pairs to a shared session so messages from different platforms — e.g. a Telegram DM and a Discord DM — share one conversation history.
 
-**Blocked on:** [PR #135404](https://github.com/NousResearch/hermes-agent/pulls/135404) (ZK-Snarky's adapter-side session-group implementation)
+**Status:** Experimental — awaiting [PR #135404](https://github.com/NousResearch/hermes-agent/pulls/135404) (adapter-side `session_group_source` seam)
 
-**Do NOT deploy to a live gateway.** This version patches the `gateway.session.session_group_source` seam, which does not exist in the current Hermes build. It will fail at registration time with a clear warning and fall back to disabled.
-
-For production use today, deploy **v0.1.1** (hook-based via `session_key_override`, works with the current patcher).
+**Do NOT deploy to a live gateway.** This plugin patches the `gateway.session.session_group_source` seam, which does not exist in the current Hermes build. Registration fails cleanly with a logged warning; the plugin stays inert.
 
 ---
 
-## What v0.2.0f changes vs v0.1.1
+## Design
 
-| | v0.1.1 (current) | v0.2.0f (experimental) |
-|---|---|---|
-| **Mechanism** | `ctx.register_hook("session_key_override", ...)` | Patches `gateway.session.session_group_source` directly |
-| **Key derivation** | Group-name key via `f"{ns}:conv:{name}"` | Synthetic `SessionSource` with `chat_id=f"group:{name}"` |
-| **Session identity** | String key | `SessionSource` object (upstream contract) |
-| **Anchor** | None (group name = identity) | Synthetic source (group name = identity, no real member privileged) |
-| **Validation** | None | Same-adapter multi-chat groups rejected at load |
-| **PII** | Real IDs in docstring examples | Synthetic IDs only |
-| **Requires PR #135404** | No | Yes |
+### Synthetic anchor (no member is privileged)
 
-## Design decisions
+The session key is derived from a synthetic `SessionSource` whose `chat_id` is `"group:<name>"` — the group name *is* the session identity, not any member. Consequences:
 
-### Synthetic anchor (no real member is privileged)
-
-v0.1.1 built the session key from the group name directly. v0.2.0f achieves the same result through the upstream seam by returning a synthetic `SessionSource` whose `chat_id` is `"group:<name>"`. This means:
-
-- Adding/removing members never resets the group session
-- No member is the "anchor" — all members are interchangeable
-- The synthetic source is only ever returned by the hook, never an incoming message — upstream's weakref security gate is unaffected
+- Adding or removing members never resets the group's conversation
+- No member is a permanent "anchor"; members are interchangeable
+- The synthetic source is only ever *returned by the hook*, never an incoming message — upstream's adapter-built-source security gate is unaffected
 
 ### Same-adapter validation
 
-Upstream's `BasePlatformAdapter._pending_messages` holds one slot per session per adapter. Two chats on the same platform in one group would collide. v0.2.0f validates this at config load and logs explicit errors.
+Upstream's `BasePlatformAdapter._pending_messages` holds one pending slot per session per adapter. Two chats of the same platform in one group would collide in that slot. This plugin validates at config load and logs an explicit error for any group with two members on one platform.
 
 ### Multi-group support
 
-Multiple groups are fully supported — each gets its own synthetic anchor and session key. A chat can only be in one group (one key per chat, architectural limit of the durable model).
+Each group gets its own synthetic anchor and session key, so multiple groups coexist without contention. A chat can belong to only one group — one key per chat is an architectural property of the durable session model.
 
-## When to deploy
+---
+
+## When it deploys
 
 1. PR #135404 merges upstream
 2. `hermes update` pulls the merged version
-3. Verify the `session_group_source` seam exists: `python3 -c "from gateway.session import session_group_source; print(session_group_source)"`
-4. Delete the old patcher (`session_patcher.py`) — its 2 lines are replaced by the real seam
-5. Copy this plugin to `~/.hermes/plugins/session-groups/`
-6. Set `enabled: true` in plugin.yaml
-7. Restart gateway
-8. Verify: fresh session, grouping works, existing sessions survive
+3. Verify the seam exists: `python3 -c "from gateway.session import session_group_source; print(session_group_source)"`
+4. Copy this plugin to `~/.hermes/plugins/session-groups/`
+5. Set `enabled: true` in `plugin.yaml`
+6. Restart the gateway
+7. Verify: fresh session, grouping resolves, existing sessions survive
 
-## Rollback
+If anything goes wrong, remove the plugin and restart — the plugin's absence restores default per-chat session behavior.
 
-If anything goes wrong: revert to v0.1.1, re-enable the patcher, restart. The old system is the fallback until the new one is proven.
+---
 
-## Config example
+## Config
 
 ```yaml
 session_groups:
@@ -64,31 +51,35 @@ session_groups:
     - name: family
       members:
         - platform: telegram
-          chat_id: "-1001234567890"  # synthetic example
+          chat_id: "-1001234567890"
         - platform: discord
-          chat_id: "555000111"        # synthetic example
+          chat_id: "555000111"
     - name: friends
       members:
         - platform: telegram
-          chat_id: "-1005555555555"  # synthetic example
+          chat_id: "-1005555555555"
         - platform: discord
-          chat_id: "666222333"        # synthetic example
+          chat_id: "666222333"
 ```
 
-**Multi-group note:** Each group gets its own synthetic anchor and session key — multiple groups are fully supported. Here, `family` and `friends` are two independent sessions, both involving Telegram and Discord: different chats, different groups, no collision. A chat can only be in one group (architectural limit).
+(All IDs above are synthetic examples.)
 
-**One-chat-per-platform constraint:** Within a single group, at most one member per platform. Two Telegram chats — or two Discord chats — in one group will be rejected at config load with an explicit error until the per-adapter pending-slot limitation is resolved upstream. Use separate groups instead.
+**Multi-group:** Each group is an independent session with its own key. `family` and `friends` both involve Telegram and Discord — different chats, different groups, no collision.
 
-**Schema compatibility:** v0.2.0f uses the exact same config schema as v0.1.1 (config layer carried over unchanged). Your existing `session_groups` config works as-is — no migration needed.
+**One chat per platform per group:** Two Telegram chats — or two Discord chats — in one group are rejected at config load until the [per-adapter pending-slot limitation](https://github.com/NousResearch/hermes-agent/issues/79198) is resolved upstream. Use separate groups instead.
 
-## Migration from v0.1.1
+---
 
-No config changes needed. When #135404 merges:
+## Tests
 
-1. Delete the patcher (`session_patcher.py`) — its 2 lines are replaced by the real seam
-2. Copy this plugin to `~/.hermes/plugins/session-groups/`
-3. Set `enabled: true` in plugin.yaml
-4. Restart gateway
-5. Verify: fresh session, grouping works, existing sessions survive
+```
+python3 -m pytest test_session_groups.py -v
+```
 
-The existing `session_groups:` block in your config.yaml stays exactly as-is.
+8 tests: config parsing, same-platform validation, member matching, group resolution, synthetic-source construction (group-named identity, no member privileged).
+
+---
+
+## License
+
+MIT
